@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::rc::{Rc, Weak};
 use std::str;
 
@@ -96,15 +96,57 @@ fn list_lines() -> Vec<String> {
     .collect::<Vec<String>>()
     .join("\t");
 
-    let output = Command::new("tmux")
-        .arg("list-panes")
-        .arg("-a")
+    // TODO: Replace with:
+    // tmux display-popup -E "\
+    //  tmux list-sessions -F '#{?session_attached,,#{session_activity},#{session_name}}' |\
+    //  sort -r |\
+    //  sed '/^$/d' |\
+    //  cut -d',' -f2- \|
+    //  fzf --reverse --header jump-to-session --preview 'tmux capture-pane -pt {}'  |\
+    //  xargs tmux switch-client -t"
+    //
+    // let output = Command::new("tmux")
+    //     .arg("list-panes")
+    //     .arg("-a")
+    //     .arg("-F")
+    //     .arg(spec)
+    //     .output()
+    //     .expect("failed to run `tmux list-panes`");
+    //
+    // let output = str::from_utf8(&output.stdout).unwrap();
+    // let lines: Vec<&str> = output.split('\n').filter(|x| !x.is_empty()).collect();
+    // lines.into_iter().map(|x| x.to_string()).collect()
+
+    // NOTE: This is an attempt to address the TODO above.
+    // It does not yet work yet.
+    let tmux_sessions = Command::new("tmux")
+        .arg("list-sessions")
         .arg("-F")
+        .arg("'#{?session_attached,,#{session_activity},#{session_name}}'")
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let sorted = Command::new("sort")
+        .arg("-r")
+        .stdin(Stdio::from(tmux_sessions.stdout.unwrap()))
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let parsed = Command::new("sed")
+        .arg("'/^$/d'")
+        .stdin(Stdio::from(sorted.stdout.unwrap()))
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let cut = Command::new("cut")
+        .arg("-d','")
+        .arg("-f2-")
+        .stdin(Stdio::from(parsed.stdout.unwrap()))
         .arg(spec)
         .output()
-        .expect("failed to run `tmux list-panes`");
+        .expect("failed to run `tmux list-sessions`");
 
-    let output = str::from_utf8(&output.stdout).unwrap();
+    let output = str::from_utf8(&cut.stdout).unwrap();
     let lines: Vec<&str> = output.split('\n').filter(|x| !x.is_empty()).collect();
     lines.into_iter().map(|x| x.to_string()).collect()
 }
